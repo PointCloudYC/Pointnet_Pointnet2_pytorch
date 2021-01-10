@@ -56,6 +56,7 @@ def main(args):
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
     '''CREATE DIR'''
+    # (if log_dir provided in args, then create it using this name, otherwise use a name with time)
     timestr = str(datetime.datetime.now().strftime('%Y-%m-%d_%H-%M'))
     experiment_dir = Path('./log/')
     experiment_dir.mkdir(exist_ok=True)
@@ -72,6 +73,7 @@ def main(args):
     log_dir.mkdir(exist_ok=True)
 
     '''LOG'''
+    # set up our log object format, check one pointnet2_sem_seg.txt for example
     args = parse_args()
     logger = logging.getLogger("Model")
     logger.setLevel(logging.INFO)

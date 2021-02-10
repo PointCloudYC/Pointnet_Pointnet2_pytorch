@@ -1,5 +1,5 @@
 #！/bin/sh
-DATA_DIR="data"
+DATA_DIR="ShapeNet"
 DATASET_URL="https://shapenet.cs.stanford.edu/ericyi/shapenetcore_partanno_segmentation_benchmark_v0.zip"
 DATASET_ORIGINAL_NAME="shapenetcore_partanno_segmentation_benchmark_v0"
 DATASET_NAME="ShapeNet"

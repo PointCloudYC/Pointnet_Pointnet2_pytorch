@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch.nn.functional as F
-from models.pointnet_util import PointNetSetAbstraction,PointNetFeaturePropagation
+# from models.pointnet_util import PointNetSetAbstraction,PointNetFeaturePropagation
+from pointnet_util import PointNetSetAbstraction,PointNetFeaturePropagation
 
 
 class get_model(nn.Module):
@@ -23,8 +24,8 @@ class get_model(nn.Module):
         l0_points = xyz
         l0_xyz = xyz[:,:3,:]
 
-        l1_xyz, l1_points = self.sa1(l0_xyz, l0_points)
-        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)
+        l1_xyz, l1_points = self.sa1(l0_xyz, l0_points) # (B,3,1024) (B,64,1024)
+        l2_xyz, l2_points = self.sa2(l1_xyz, l1_points)# (B,3,256) (B,128,256)
         l3_xyz, l3_points = self.sa3(l2_xyz, l2_points)
         l4_xyz, l4_points = self.sa4(l3_xyz, l3_points)
 
@@ -51,5 +52,5 @@ class get_loss(nn.Module):
 if __name__ == '__main__':
     import  torch
     model = get_model(13)
-    xyz = torch.rand(6, 9, 2048)
+    xyz = torch.rand(6, 9, 2048) # shape: (Batch_size,Channel,Num_of_pts)
     (model(xyz))

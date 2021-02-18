@@ -46,6 +46,7 @@
 - download data; download data to a local folder, then make a soft link to data under current project. (check scripts/download-xx.sh) 
 - run code; `python train_cls.py --model pointnet2_cls_ssg --normal --log_dir pointnet2_cls_ssg`
  - can not run the msg model since CUDA OOM error.(out-of-memory error); when set batch size to 16, still in vain; as a result, we use the ssg model; set batch size to 8, might work
+ - 3h30s training and eval for 1 epoch; after 6 epochs, the overall test accuracy reaches 89.22%;
 
 
 ### semantic segmentation model(S3DIS)
@@ -57,6 +58,26 @@
   - very slow to run the model, ~1 hour/epoch on S3DIS (7 hour only 7 epochs on the S3DIS dataset);
   - after 7 epochs, the eval metrics are 0.508， 0.809 for mIoU and OA respectively
   - log files in log/sem_seg/xx
+
+## code profiling
+
+**take semseg for analysis, other tasks follow similar pattern.**
+
+- `train_semseg.py`, main file for sem seg task.
+  - parse user arguments, including model, batch size, lr, log_dir, etc.
+  - set up experiment dir and setup logging;
+  - **create the S3DIS dataset and corresponding data loaders**
+  - **create the model, loss and optimizer**
+  - **training loop**, where mainly perform gradient descent to learn/update parameters, and compute metrics and losses for train and val set.
+  - **evaluation loop**, where mainly compute metrics and losses for val set.
+
+- `pointnet2_sem_seg.py`, pointnet++ SSG model file; `pointnet2_sem_seg_msg.py`, the MSG model. (Note: all the utility modules are defined in `pointnet_util.py`)
+  - SetAbtraction, perform sampling(FPS) and grouping(ball query)
+  - feature propagation(up-sampling) w. skip connection.
+
+
+
+
 
 # exploitation
 

@@ -126,6 +126,7 @@ def main(args):
     except:
         log_string('No existing model, starting training from scratch...')
         start_epoch = 0
+        # change weight init strategy
         classifier = classifier.apply(weights_init)
 
     if args.optimizer == 'Adam':
@@ -162,6 +163,7 @@ def main(args):
         if momentum < 0.01:
             momentum = 0.01
         print('BN momentum updated to: %f' % momentum)
+        # update BN's momentum
         classifier = classifier.apply(lambda x: bn_momentum_adjust(x,momentum))
         num_batches = len(trainDataLoader)
         total_correct = 0
@@ -177,8 +179,8 @@ def main(args):
             optimizer.zero_grad()
             classifier = classifier.train()
             seg_pred, trans_feat = classifier(points)
-            seg_pred = seg_pred.contiguous().view(-1, NUM_CLASSES)
-            batch_label = target.view(-1, 1)[:, 0].cpu().data.numpy()
+            seg_pred = seg_pred.contiguous().view(-1, NUM_CLASSES) # (B*N,K)
+            batch_label = target.view(-1, 1)[:, 0].cpu().data.numpy() # (B*N,)
             target = target.view(-1, 1)[:, 0]
             loss = criterion(seg_pred, target, trans_feat, weights)
             loss.backward()

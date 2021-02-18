@@ -59,7 +59,7 @@ def index_points(points, idx):
     new_points = points[batch_indices, idx, :]
     return new_points
 
-
+# fathest sampling to ensure good coverage; Note: modelnet dataloader also use this function
 def farthest_point_sample(xyz, npoint):
     """
     Input:
@@ -97,12 +97,12 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
     device = xyz.device
     B, N, C = xyz.shape
     _, S, _ = new_xyz.shape
-    group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1])
-    sqrdists = square_distance(new_xyz, xyz)
-    group_idx[sqrdists > radius ** 2] = N
-    group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample]
+    group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1]) # BxSxN
+    sqrdists = square_distance(new_xyz, xyz) # BxSxN
+    group_idx[sqrdists > radius ** 2] = N # those bigger, assign idx w. lgest index(i.e. N)
+    group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample] # BxSx32, only retrieve pts w. sm dist.
     group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, nsample])
-    mask = group_idx == N
+    mask = group_idx == N #
     group_idx[mask] = group_first[mask]
     return group_idx
 
@@ -123,9 +123,9 @@ def sample_and_group(npoint, radius, nsample, xyz, points, returnfps=False):
     S = npoint
     fps_idx = farthest_point_sample(xyz, npoint) # [B, npoint, C]
     torch.cuda.empty_cache()
-    new_xyz = index_points(xyz, fps_idx)
+    new_xyz = index_points(xyz, fps_idx) # (B,npoint,C)  (C=3)
     torch.cuda.empty_cache()
-    idx = query_ball_point(radius, nsample, xyz, new_xyz)
+    idx = query_ball_point(radius, nsample, xyz, new_xyz)  # (B,S,nsample)
     torch.cuda.empty_cache()
     grouped_xyz = index_points(xyz, idx) # [B, npoint, nsample, C]
     torch.cuda.empty_cache()
@@ -140,7 +140,7 @@ def sample_and_group(npoint, radius, nsample, xyz, points, returnfps=False):
     if returnfps:
         return new_xyz, new_points, grouped_xyz, fps_idx
     else:
-        return new_xyz, new_points
+        return new_xyz, new_points # (B,S,C) (B,S,nsample,C+D)
 
 
 def sample_and_group_all(xyz, points):
@@ -162,7 +162,14 @@ def sample_and_group_all(xyz, points):
         new_points = grouped_xyz
     return new_xyz, new_points
 
-
+"""
+correspond set abstraction module of the achitecture
+- Intuitively, pointnet++ learn features locally and hierarchically (unlike pointnet which learn either global or individually)
+- Essentially, it partition the input PC into several clusters, then apply pointnet vanilla to aggregate features
+- it will do 2 things: 
+  - 1)partition the input PC into several clusters (i.e. farthest sampling and grouping by KNN/ball query),
+  - 2)learn locally using pointnet vanilla
+"""
 class PointNetSetAbstraction(nn.Module):
     def __init__(self, npoint, radius, nsample, in_channel, mlp, group_all):
         super(PointNetSetAbstraction, self).__init__()
@@ -200,10 +207,10 @@ class PointNetSetAbstraction(nn.Module):
         new_points = new_points.permute(0, 3, 2, 1) # [B, C+D, nsample,npoint]
         for i, conv in enumerate(self.mlp_convs):
             bn = self.mlp_bns[i]
-            new_points =  F.relu(bn(conv(new_points)))
+            new_points =  F.relu(bn(conv(new_points))) # # (B,mlp[-1],nsample,npoint), conv2d and bn2d, different from pointnet but the essence is the same
 
-        new_points = torch.max(new_points, 2)[0]
-        new_xyz = new_xyz.permute(0, 2, 1)
+        new_points = torch.max(new_points, 2)[0] # (B,mlp[-1],npoint) 6x64x1024
+        new_xyz = new_xyz.permute(0, 2, 1) ## (B,C,npoint) 6x3x1024
         return new_xyz, new_points
 
 

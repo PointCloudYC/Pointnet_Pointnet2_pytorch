@@ -15,6 +15,5 @@ python test_cls.py
 --normal \
 --log_dir pointnet2_cls_ssg
 
-
 # run a script 60min later
 # sleep 60m && ./run.sh

@@ -4,7 +4,7 @@
 # cd data_utils
 # python collect_indoor3d_data.py
 
-# train
+# train, Note: if specified a log_dir, then it will restore the check pt if existed
 python train_semseg.py \
 --model pointnet2_sem_seg \
 --test_area 5 \

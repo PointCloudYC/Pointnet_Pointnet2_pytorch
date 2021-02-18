@@ -1,4 +1,4 @@
- TOC]
+[TOC]
 
 # time
 - 30min, Jan 6th, 2021

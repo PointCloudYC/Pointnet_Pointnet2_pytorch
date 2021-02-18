@@ -33,6 +33,8 @@ class get_loss(torch.nn.Module):
         self.mat_diff_loss_scale = mat_diff_loss_scale
 
     def forward(self, pred, target, trans_feat):
+
+        # https://pytorch.org/docs/stable/generated/torch.nn.NLLLoss.html
         loss = F.nll_loss(pred, target)
         mat_diff_loss = feature_transform_reguliarzer(trans_feat)
 

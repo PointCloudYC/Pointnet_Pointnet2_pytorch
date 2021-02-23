@@ -56,8 +56,9 @@
   - 272 rooms; `find *.npy | wc -l`
 - run code; `python train_semseg.py --model pointnet2_sem_seg --test_area 5 --log_dir pointnet2_sem_seg` (check run.sh); for a new experiment, remember to assign a new log_dir
   - very slow to run the model, ~1 hour/epoch on S3DIS (7 hour only 7 epochs on the S3DIS dataset);
-  - after 7 epochs, the eval metrics are 0.508， 0.809 for mIoU and OA respectively
-  - log files in log/sem_seg/xx
+  - after 7 epochs, the eval metrics are 0.508， 0.809 for mIoU and OA respectively(SSG mmodel)
+  - after 20 epochs, the eval metrics are 0.5098， 0.8040 for mIoU and OA respectively (for the MSG model)
+  - log files in log/sem_seg_x/xx
 
 ## code profiling
 
@@ -71,12 +72,11 @@
   - **training loop**, where mainly perform gradient descent to learn/update parameters, and compute metrics and losses for train and val set.
   - **evaluation loop**, where mainly compute metrics and losses for val set.
 
-- `pointnet2_sem_seg.py`, pointnet++ SSG model file; `pointnet2_sem_seg_msg.py`, the MSG model. (Note: all the utility modules are defined in `pointnet_util.py`)
-  - SetAbtraction, perform sampling(FPS) and grouping(ball query)
+- `pointnet2_sem_seg.py`, pointnet++ SSG model file; (Note: all the utility modules are defined in `pointnet_util.py`)
+  - SetAbtraction, perform sampling(FPS) and grouping(ball query) and PointNet vanilla w/o T-Nets.
   - feature propagation(up-sampling) w. skip connection.
 
-
-
+- `pointnet2_sem_seg_msg.py`, pointnet++ MSG model file; (Note: all the utility modules are defined in `pointnet_util.py`)
 
 
 # exploitation

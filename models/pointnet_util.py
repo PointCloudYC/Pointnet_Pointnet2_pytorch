@@ -12,7 +12,7 @@ def pc_normalize(pc):
     l = pc.shape[0]
     centroid = np.mean(pc, axis=0)
     pc = pc - centroid
-    m = np.max(np.sqrt(np.sum(pc**2, axis=1)))
+    m = np.max(np.sqrt(np.sum(pc**2, axis=1))) # get max distance to centroid
     pc = pc / m
     return pc
 
@@ -99,39 +99,54 @@ def query_ball_point(radius, nsample, xyz, new_xyz):
     _, S, _ = new_xyz.shape
     group_idx = torch.arange(N, dtype=torch.long).to(device).view(1, 1, N).repeat([B, S, 1]) # BxSxN
     sqrdists = square_distance(new_xyz, xyz) # BxSxN
-    group_idx[sqrdists > radius ** 2] = N # those bigger, assign idx w. lgest index(i.e. N)
-    group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample] # BxSx32, only retrieve pts w. sm dist.
+
+    # replace the values in the group_idx which is bigger than radius^2 w. N
+    group_idx[sqrdists > radius ** 2] = N # (B,S,N) those bigger, assign idx w. lgest index(i.e. N)
+
+    # torch's sort method return A namedtuple of (values, indices)
+    group_idx = group_idx.sort(dim=-1)[0][:, :, :nsample] # (B,S,32), only retrieve pts w. sm dist.
+
+    # Aha moment, those nearest nsample(32) points idx might be like [1,9,11,12,N,N] 
+    # how to handle NN? just replace the N w. the nearest id
     group_first = group_idx[:, :, 0].view(B, S, 1).repeat([1, 1, nsample])
     mask = group_idx == N #
     group_idx[mask] = group_first[mask]
-    return group_idx
+    
+    return group_idx # (B,S,32)
 
 
 def sample_and_group(npoint, radius, nsample, xyz, points, returnfps=False):
     """
     Input:
-        npoint:
-        radius:
-        nsample:
+        npoint: the number of sampled pts, denote by S
+        radius: search radius for ball query
+        nsample: max sample number in local region
         xyz: input points position data, [B, N, 3]
         points: input points data, [B, N, D]
+        returnfps: default False, whether return FPS relevant variables, e.g. fps_idx, etc.
     Return:
         new_xyz: sampled points position data, [B, npoint, nsample, 3]
         new_points: sampled points data, [B, npoint, nsample, 3+D]
     """
+    # obtain sampled pts using FPS (calling fathest_point_sample method)
     B, N, C = xyz.shape
     S = npoint
-    fps_idx = farthest_point_sample(xyz, npoint) # [B, npoint, C]
+    fps_idx = farthest_point_sample(xyz, npoint) # [B,S]
     torch.cuda.empty_cache()
-    new_xyz = index_points(xyz, fps_idx) # (B,npoint,C)  (C=3)
+    new_xyz = index_points(xyz, fps_idx) # (B,S,C)  (C=3)
+    
+    # obtain each pt's ball query pts of new_xyz.
     torch.cuda.empty_cache()
     idx = query_ball_point(radius, nsample, xyz, new_xyz)  # (B,S,nsample)
     torch.cuda.empty_cache()
-    grouped_xyz = index_points(xyz, idx) # [B, npoint, nsample, C]
+    grouped_xyz = index_points(xyz, idx) # (B, S, nsample, C)
+    
     torch.cuda.empty_cache()
-    grouped_xyz_norm = grouped_xyz - new_xyz.view(B, S, 1, C)
+    # normalize each partition
+    grouped_xyz_norm = grouped_xyz - new_xyz.view(B, S, 1, C) # (B, S, nsample, C) 
     torch.cuda.empty_cache()
 
+    # if existing data features for each pt, then concat w. normalized xyz coordinates
     if points is not None:
         grouped_points = index_points(points, idx)
         new_points = torch.cat([grouped_xyz_norm, grouped_points], dim=-1) # [B, npoint, nsample, C+D]
@@ -144,7 +159,8 @@ def sample_and_group(npoint, radius, nsample, xyz, points, returnfps=False):
 
 
 def sample_and_group_all(xyz, points):
-    """
+    """ similar to sample_and_group method, but this method assume only 1 sampled pt and N as ball query('s K parameter)
+        will be used for classification
     Input:
         xyz: input points position data, [B, N, 3]
         points: input points data, [B, N, D]
@@ -160,7 +176,7 @@ def sample_and_group_all(xyz, points):
         new_points = torch.cat([grouped_xyz, points.view(B, 1, N, -1)], dim=-1)
     else:
         new_points = grouped_xyz
-    return new_xyz, new_points
+    return new_xyz, new_points # (B,1,3) (B,1,N,3+D)
 
 """
 correspond set abstraction module of the achitecture
@@ -172,6 +188,16 @@ correspond set abstraction module of the achitecture
 """
 class PointNetSetAbstraction(nn.Module):
     def __init__(self, npoint, radius, nsample, in_channel, mlp, group_all):
+        """
+
+        Args:
+            npoint ([int]): the number of sampled pts, e.g. 1024
+            radius ([float]): the search radius of ball query for each sampled pt, e.g. 0.2
+            nsample ([int]): max sample number in local region, e.g. 32
+            in_channel ([int]): input channel, e.g. 9+3
+            mlp ([list]): PointNet vanilla MLP output channels, e.g. [64,128,256]
+            group_all ([bool]): for classification use, aggregate over all points(i.e. only 1 pt and N nearest nb pts)
+        """
         super(PointNetSetAbstraction, self).__init__()
         self.npoint = npoint
         self.radius = radius
@@ -198,20 +224,23 @@ class PointNetSetAbstraction(nn.Module):
         if points is not None:
             points = points.permute(0, 2, 1)
 
-        if self.group_all:
+        if self.group_all: # only use when for cls task
             new_xyz, new_points = sample_and_group_all(xyz, points)
         else:
+            # (B,S,C)  (B,S,K,C)   K=nsample
+            # new_xyz: sampled points position data, [B, npoint, C]
+            # new_points: sampled points data, [B, npoint, nsample, C+D]
             new_xyz, new_points = sample_and_group(self.npoint, self.radius, self.nsample, xyz, points)
-        # new_xyz: sampled points position data, [B, npoint, C]
-        # new_points: sampled points data, [B, npoint, nsample, C+D]
-        new_points = new_points.permute(0, 3, 2, 1) # [B, C+D, nsample,npoint]
+            
+        new_points = new_points.permute(0, 3, 2, 1) # (B, C+D, K,S)
         for i, conv in enumerate(self.mlp_convs):
             bn = self.mlp_bns[i]
-            new_points =  F.relu(bn(conv(new_points))) # # (B,mlp[-1],nsample,npoint), conv2d and bn2d, different from pointnet but the essence is the same
-
-        new_points = torch.max(new_points, 2)[0] # (B,mlp[-1],npoint) 6x64x1024
-        new_xyz = new_xyz.permute(0, 2, 1) ## (B,C,npoint) 6x3x1024
-        return new_xyz, new_points
+            new_points =  F.relu(bn(conv(new_points))) # # (B,mlp[-1],K,S), conv2d and bn2d, different from pointnet but the essence is the same
+        
+        # max pooling along K's dim
+        new_points = torch.max(new_points, 2)[0] # (B,mlp[-1],S) e.g. 6x64x1024
+        new_xyz = new_xyz.permute(0, 2, 1) ## (B,C,S) e.g. 6x3x64
+        return new_xyz, new_points # (B,C,S) (B,mlp[-1],S) e.g. 6x64x1024
 
 
 class PointNetSetAbstractionMsg(nn.Module):
@@ -286,7 +315,7 @@ class PointNetFeaturePropagation(nn.Module):
             last_channel = out_channel
 
     def forward(self, xyz1, xyz2, points1, points2):
-        """
+        """ interpolation then conat previous layer's features to recover local-level features followed by MLPs
         Input:
             xyz1: input points position data, [B, C, N]
             xyz2: sampled input points position data, [B, C, S]
@@ -295,34 +324,37 @@ class PointNetFeaturePropagation(nn.Module):
         Return:
             new_points: upsampled points data, [B, D', N]
         """
-        xyz1 = xyz1.permute(0, 2, 1)
-        xyz2 = xyz2.permute(0, 2, 1)
+        xyz1 = xyz1.permute(0, 2, 1) # BxNxC
+        xyz2 = xyz2.permute(0, 2, 1) # BxSxC
 
-        points2 = points2.permute(0, 2, 1)
+        points2 = points2.permute(0, 2, 1) # BxSxD
         B, N, C = xyz1.shape
         _, S, _ = xyz2.shape
 
         if S == 1:
-            interpolated_points = points2.repeat(1, N, 1)
+            interpolated_points = points2.repeat(1, N, 1) # BxNxD
         else:
-            dists = square_distance(xyz1, xyz2)
-            dists, idx = dists.sort(dim=-1)
-            dists, idx = dists[:, :, :3], idx[:, :, :3]  # [B, N, 3]
+            dists = square_distance(xyz1, xyz2) # (B,N,S) each pt in xyz1 has S number of distance
+            dists, idx = dists.sort(dim=-1) # torch's sort method
+            dists, idx = dists[:, :, :3], idx[:, :, :3]  # [B, N, 3] only consider 3 nearest elements of each pt in xyz1
 
-            dist_recip = 1.0 / (dists + 1e-8)
-            norm = torch.sum(dist_recip, dim=2, keepdim=True)
-            weight = dist_recip / norm
-            interpolated_points = torch.sum(index_points(points2, idx) * weight.view(B, N, 3, 1), dim=2)
+            # inverse distance weighted interpolation
+            dist_recip = 1.0 / (dists + 1e-8) # BxNx3
+            norm = torch.sum(dist_recip, dim=2, keepdim=True) # BxNx1
+            weight = dist_recip / norm # BxNx3
+            # gain points features: index_points(points2,idx) (B,N,3,D)
+            # weights (B,N,3,1) 
+            interpolated_points = torch.sum(index_points(points2, idx) * weight.view(B, N, 3, 1), dim=2) # (B,N,D1)
 
         if points1 is not None:
-            points1 = points1.permute(0, 2, 1)
-            new_points = torch.cat([points1, interpolated_points], dim=-1)
+            points1 = points1.permute(0, 2, 1 ) # BxNxD12, e.g. BxNx256
+            new_points = torch.cat([points1, interpolated_points], dim=-1) # BxNx2D, skip connection
         else:
             new_points = interpolated_points
 
-        new_points = new_points.permute(0, 2, 1)
+        new_points = new_points.permute(0, 2, 1) # Bx(D1+D2)xN
         for i, conv in enumerate(self.mlp_convs):
             bn = self.mlp_bns[i]
-            new_points = F.relu(bn(conv(new_points)))
+            new_points = F.relu(bn(conv(new_points))) # BX mlp[-1]xN
         return new_points
 
